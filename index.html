@@ -38,6 +38,13 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
 .sticker-row{display:flex;gap:6px;flex-wrap:wrap}
 .sticker-btn{font-size:1.6rem;background:var(--surface2);border:none;border-radius:8px;padding:6px 10px;cursor:pointer;transition:.15s}
 .sticker-btn:hover{background:#2a2a3e;transform:scale(1.1)}
+.gallery-item{position:relative;background:var(--surface2);border-radius:8px;padding:6px;cursor:pointer;transition:.15s}
+.gallery-item:hover{background:#2a2a3e}
+.gallery-item img{width:100%;border-radius:4px}
+.gallery-item .gallery-name{font-size:.7rem;color:var(--text2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gallery-item .gallery-del{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);border:none;color:#f66;font-size:.7rem;border-radius:4px;cursor:pointer;padding:1px 5px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;padding:10px 24px;border-radius:8px;font-size:.9rem;font-weight:600;z-index:999;opacity:0;transition:opacity .3s}
+.toast.show{opacity:1}
 @media(max-width:768px){.app{flex-direction:column}.toolbar{width:100%;flex-direction:row;flex-wrap:wrap}.panel{flex:1;min-width:140px}}
 </style>
 </head>
@@ -149,6 +156,12 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
       <button class="btn btn-secondary" onclick="clearCanvas()">Clear Canvas</button>
       <button class="btn btn-secondary" onclick="undoLast()">↩ Undo</button>
       <button class="btn btn-primary" onclick="exportPNG()">💾 Export PNG</button>
+    </div>
+    <div class="panel" style="display:flex;flex-direction:column;gap:8px">
+      <h3>Gallery</h3>
+      <button class="btn btn-primary" onclick="shareDesign()">🔗 Share Link</button>
+      <button class="btn btn-secondary" onclick="saveToGallery()">📌 Save to Gallery</button>
+      <div id="galleryList" style="display:flex;flex-direction:column;gap:6px;margin-top:4px;max-height:300px;overflow-y:auto"></div>
     </div>
   </div>
   <div class="canvas-wrap">
@@ -528,6 +541,114 @@ function placeImageSticker(x,y){
 }
 
 initDeck();
+
+// === Gallery: Save/Share via URL hash + localStorage ===
+const GALLERY_KEY='deckDesignerGallery';
+
+function showToast(msg){
+  let t=document.querySelector('.toast');
+  if(!t){t=document.createElement('div');t.className='toast';document.body.appendChild(t)}
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+function getCanvasData(){
+  // Use JPEG at low quality for smaller URLs
+  return C.toDataURL('image/jpeg',0.5);
+}
+
+function shareDesign(){
+  const data=getCanvasData();
+  // Strip data URL prefix, encode for hash
+  const b64=data.split(',')[1];
+  const url=window.location.origin+window.location.pathname+'#design='+encodeURIComponent(b64);
+  if(url.length>50000){
+    // Too large for URL, use smaller quality
+    const small=C.toDataURL('image/jpeg',0.25).split(',')[1];
+    const url2=window.location.origin+window.location.pathname+'#design='+encodeURIComponent(small);
+    if(url2.length>100000){
+      showToast('⚠️ Design too complex to share via URL. Try Export PNG instead.');
+      return;
+    }
+    navigator.clipboard.writeText(url2).then(()=>showToast('🔗 Share link copied!')).catch(()=>{
+      window.location.hash='design='+encodeURIComponent(small);
+      showToast('🔗 URL updated — copy from address bar');
+    });
+    return;
+  }
+  navigator.clipboard.writeText(url).then(()=>showToast('🔗 Share link copied!')).catch(()=>{
+    window.location.hash='design='+encodeURIComponent(b64);
+    showToast('🔗 URL updated — copy from address bar');
+  });
+}
+
+function loadFromHash(){
+  const hash=window.location.hash;
+  if(!hash.startsWith('#design='))return;
+  const b64=decodeURIComponent(hash.slice(8));
+  const img=new Image();
+  img.onload=()=>{
+    ctx.clearRect(0,0,C.width,C.height);
+    ctx.save();deckClip();
+    ctx.drawImage(img,0,0,C.width,C.height);
+    ctx.restore();drawDeckOutline();
+    showToast('🎨 Design loaded from shared link!');
+  };
+  img.src='data:image/jpeg;base64,'+b64;
+}
+
+function getGallery(){
+  try{return JSON.parse(localStorage.getItem(GALLERY_KEY))||[]}catch(e){return[]}
+}
+function setGallery(g){localStorage.setItem(GALLERY_KEY,JSON.stringify(g))}
+
+function saveToGallery(){
+  const name=prompt('Name your design:','My Deck '+(getGallery().length+1));
+  if(!name)return;
+  const thumb=C.toDataURL('image/jpeg',0.4);
+  const full=C.toDataURL('image/png');
+  const g=getGallery();
+  g.unshift({name,thumb,full,date:Date.now()});
+  if(g.length>20)g.pop();
+  setGallery(g);
+  renderGallery();
+  showToast('📌 Saved to gallery!');
+}
+
+function loadFromGallery(idx){
+  const g=getGallery();
+  if(!g[idx])return;
+  saveState();
+  const img=new Image();
+  img.onload=()=>{
+    ctx.clearRect(0,0,C.width,C.height);
+    ctx.drawImage(img,0,0);
+    showToast('Loaded: '+g[idx].name);
+  };
+  img.src=g[idx].full;
+}
+
+function deleteFromGallery(idx){
+  const g=getGallery();
+  g.splice(idx,1);
+  setGallery(g);
+  renderGallery();
+}
+
+function renderGallery(){
+  const el=document.getElementById('galleryList');
+  const g=getGallery();
+  if(!g.length){el.innerHTML='<span style="font-size:.75rem;color:var(--text2)">No saved designs yet</span>';return}
+  el.innerHTML=g.map((d,i)=>`<div class="gallery-item" onclick="loadFromGallery(${i})">
+    <img src="${d.thumb}" alt="${d.name}">
+    <div class="gallery-name">${d.name}</div>
+    <button class="gallery-del" onclick="event.stopPropagation();deleteFromGallery(${i})">✕</button>
+  </div>`).join('');
+}
+
+// Init: load from URL hash if present, render gallery
+window.addEventListener('load',()=>{loadFromHash();renderGallery()});
+window.addEventListener('hashchange',loadFromHash);
 </script>
 </body>
 </html>
