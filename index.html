@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deck Designer — Custom Skateboard Deck Graphics</title>
+<meta name="description" content="Design custom skateboard deck graphics right in your browser. Choose shapes, colors, patterns, text, and export your design as a PNG.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛹</text></svg>">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0f;--surface:#14141f;--surface2:#1e1e2e;--accent:#a855f7;--accent2:#ec4899;--text:#e2e2f0;--text2:#8888a0;--radius:12px}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{text-align:center;padding:24px 16px 8px}
+header h1{font-size:1.8rem;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800}
+header p{color:var(--text2);font-size:.9rem;margin-top:4px}
+.app{display:flex;gap:16px;padding:16px;flex:1;max-width:1200px;margin:0 auto;width:100%}
+.toolbar{width:240px;display:flex;flex-direction:column;gap:12px;flex-shrink:0}
+.panel{background:var(--surface);border-radius:var(--radius);padding:14px}
+.panel h3{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);margin-bottom:10px}
+.canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;background:var(--surface);border-radius:var(--radius);overflow:hidden;position:relative}
+canvas{cursor:crosshair}
+.color-row{display:flex;gap:6px;flex-wrap:wrap}
+.color-swatch{width:28px;height:28px;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:.15s}
+.color-swatch:hover,.color-swatch.active{border-color:#fff;transform:scale(1.15)}
+.btn{display:block;width:100%;padding:10px;border:none;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;transition:.15s}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+.btn-primary:hover{opacity:.9;transform:translateY(-1px)}
+.btn-secondary{background:var(--surface2);color:var(--text)}
+.btn-secondary:hover{background:#2a2a3e}
+.tools-row{display:flex;gap:6px;flex-wrap:wrap}
+.tool-btn{padding:8px 12px;background:var(--surface2);border:2px solid transparent;border-radius:8px;cursor:pointer;font-size:1.1rem;transition:.15s;color:var(--text)}
+.tool-btn:hover{background:#2a2a3e}
+.tool-btn.active{border-color:var(--accent);background:#2a1a3e}
+label{display:block;font-size:.8rem;color:var(--text2);margin:8px 0 4px}
+input[type=range]{width:100%;accent-color:var(--accent)}
+input[type=text]{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;border-radius:6px;color:var(--text);font-size:.85rem}
+select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;border-radius:6px;color:var(--text);font-size:.85rem}
+.sticker-row{display:flex;gap:6px;flex-wrap:wrap}
+.sticker-btn{font-size:1.6rem;background:var(--surface2);border:none;border-radius:8px;padding:6px 10px;cursor:pointer;transition:.15s}
+.sticker-btn:hover{background:#2a2a3e;transform:scale(1.1)}
+@media(max-width:768px){.app{flex-direction:column}.toolbar{width:100%;flex-direction:row;flex-wrap:wrap}.panel{flex:1;min-width:140px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛹 Deck Designer</h1>
+  <p>Design custom skateboard deck graphics — no account needed</p>
+</header>
+<div class="app">
+  <div class="toolbar">
+    <div class="panel">
+      <h3>Tools</h3>
+      <div class="tools-row">
+        <button class="tool-btn active" data-tool="brush" title="Brush">🖌️</button>
+        <button class="tool-btn" data-tool="line" title="Line">📏</button>
+        <button class="tool-btn" data-tool="rect" title="Rectangle">⬜</button>
+        <button class="tool-btn" data-tool="circle" title="Circle">⭕</button>
+        <button class="tool-btn" data-tool="fill" title="Fill">🪣</button>
+        <button class="tool-btn" data-tool="eraser" title="Eraser">🧹</button>
+        <button class="tool-btn" data-tool="text" title="Text">🔤</button>
+        <button class="tool-btn" data-tool="sticker" title="Sticker">🎨</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Colors</h3>
+      <div class="color-row" id="colors"></div>
+      <label>Custom <input type="color" id="customColor" value="#a855f7" style="width:100%;height:30px;border:none;background:none;cursor:pointer;margin-top:4px"></label>
+    </div>
+    <div class="panel">
+      <h3>Brush Size</h3>
+      <input type="range" id="brushSize" min="1" max="40" value="6">
+      <span id="brushSizeVal" style="font-size:.8rem;color:var(--text2)">6px</span>
+    </div>
+    <div class="panel" id="textPanel" style="display:none">
+      <h3>Text Options</h3>
+      <input type="text" id="textInput" placeholder="Type text...">
+      <label>Font Size</label>
+      <input type="range" id="fontSize" min="12" max="80" value="32">
+      <label>Font</label>
+      <select id="fontFamily">
+        <option value="Impact">Impact</option>
+        <option value="Arial Black">Arial Black</option>
+        <option value="Courier New">Courier New</option>
+        <option value="Georgia">Georgia</option>
+        <option value="Comic Sans MS">Comic Sans MS</option>
+      </select>
+    </div>
+    <div class="panel" id="stickerPanel" style="display:none">
+      <h3>Stickers</h3>
+      <div class="sticker-row">
+        <button class="sticker-btn" data-sticker="🛹">🛹</button>
+        <button class="sticker-btn" data-sticker="💀">💀</button>
+        <button class="sticker-btn" data-sticker="🔥">🔥</button>
+        <button class="sticker-btn" data-sticker="⚡">⚡</button>
+        <button class="sticker-btn" data-sticker="👽">👽</button>
+        <button class="sticker-btn" data-sticker="🐍">🐍</button>
+        <button class="sticker-btn" data-sticker="🌹">🌹</button>
+        <button class="sticker-btn" data-sticker="⭐">⭐</button>
+        <button class="sticker-btn" data-sticker="🎯">🎯</button>
+        <button class="sticker-btn" data-sticker="🦅">🦅</button>
+        <button class="sticker-btn" data-sticker="🐉">🐉</button>
+        <button class="sticker-btn" data-sticker="☠️">☠️</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Background</h3>
+      <div class="color-row" id="bgColors"></div>
+      <button class="btn btn-secondary" onclick="fillDeckGradient()" style="margin-top:8px">Random Gradient</button>
+    </div>
+    <div class="panel" style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-secondary" onclick="clearCanvas()">Clear Canvas</button>
+      <button class="btn btn-secondary" onclick="undoLast()">↩ Undo</button>
+      <button class="btn btn-primary" onclick="exportPNG()">💾 Export PNG</button>
+    </div>
+  </div>
+  <div class="canvas-wrap">
+    <canvas id="deck" width="320" height="820"></canvas>
+  </div>
+</div>
+<script>
+const C=document.getElementById('deck'),ctx=C.getContext('2d');
+const COLORS=['#ffffff','#000000','#e53e3e','#dd6b20','#ecc94b','#38a169','#3182ce','#805ad5','#d53f8c','#4fd1c2','#a0aec0','#2d3748'];
+const BG_COLORS=['#000000','#1a1a2e','#0f3460','#16213e','#1b1b2f','#2d132c','#ffffff','#f5f5dc'];
+let tool='brush',color='#a855f7',brushSize=6,drawing=false,startX,startY,history=[],selectedSticker='🛹';
+
+function initColors(id,colors,onClick){
+  const el=document.getElementById(id);
+  colors.forEach((c,i)=>{
+    const s=document.createElement('div');
+    s.className='color-swatch'+(i===0?' active':'');
+    s.style.background=c;
+    s.onclick=()=>{onClick(c);el.querySelectorAll('.color-swatch').forEach(x=>x.classList.remove('active'));s.classList.add('active')};
+    el.appendChild(s);
+  });
+}
+initColors('colors',COLORS,c=>{color=c;document.getElementById('customColor').value=c});
+initColors('bgColors',BG_COLORS,c=>fillDeckBg(c));
+document.getElementById('customColor').oninput=e=>color=e.target.value;
+document.getElementById('brushSize').oninput=e=>{brushSize=+e.target.value;document.getElementById('brushSizeVal').textContent=e.target.value+'px'};
+
+document.querySelectorAll('.tool-btn').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tool-btn').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');tool=b.dataset.tool;
+  document.getElementById('textPanel').style.display=tool==='text'?'block':'none';
+  document.getElementById('stickerPanel').style.display=tool==='sticker'?'block':'none';
+});
+document.querySelectorAll('.sticker-btn').forEach(b=>b.onclick=()=>selectedSticker=b.dataset.sticker);
+
+function saveState(){history.push(C.toDataURL());if(history.length>30)history.shift()}
+function undoLast(){if(history.length){const img=new Image();img.onload=()=>{ctx.clearRect(0,0,C.width,C.height);ctx.drawImage(img,0,0)};img.src=history.pop()}}
+
+// Draw deck shape
+function deckPath(){
+  const w=C.width,h=C.height,r=w/2,nose=80,tail=70;
+  ctx.beginPath();
+  ctx.moveTo(r,0);
+  ctx.bezierCurveTo(w+20,nose,-20,nose,r,0);// nose curve (top)
+  // Actually let's do a proper deck outline
+  ctx.closePath();
+}
+
+function fillDeckBg(c){saveState();ctx.save();deckClip();ctx.fillStyle=c;ctx.fillRect(0,0,C.width,C.height);ctx.restore();restoreDrawing()}
+function fillDeckGradient(){
+  saveState();
+  const g=ctx.createLinearGradient(0,0,C.width,C.height);
+  const rc=()=>COLORS[Math.floor(Math.random()*COLORS.length)];
+  g.addColorStop(0,rc());g.addColorStop(.5,rc());g.addColorStop(1,rc());
+  ctx.save();deckClip();ctx.fillStyle=g;ctx.fillRect(0,0,C.width,C.height);ctx.restore();restoreDrawing();
+}
+
+let drawingData=null;
+function restoreDrawing(){
+  if(drawingData){const img=new Image();img.onload=()=>ctx.drawImage(img,0,0);img.src=drawingData}
+}
+
+function deckClip(){
+  const w=C.width,h=C.height,r=w/2;
+  ctx.beginPath();
+  // Nose (top)
+  ctx.moveTo(20,100);
+  ctx.quadraticCurveTo(20,10,r,8);
+  ctx.quadraticCurveTo(w-20,10,w-20,100);
+  // Right side
+  ctx.lineTo(w-10,h-100);
+  // Tail (bottom)
+  ctx.quadraticCurveTo(w-15,h-10,r,h-5);
+  ctx.quadraticCurveTo(15,h-10,10,h-100);
+  // Left side
+  ctx.lineTo(20,100);
+  ctx.closePath();
+  ctx.clip();
+}
+
+function initDeck(){
+  ctx.save();deckClip();
+  ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,C.width,C.height);
+  ctx.restore();
+  // Draw outline
+  drawDeckOutline();
+}
+
+function drawDeckOutline(){
+  const w=C.width,h=C.height,r=w/2;
+  ctx.save();
+  ctx.strokeStyle='#333';ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(20,100);
+  ctx.quadraticCurveTo(20,10,r,8);
+  ctx.quadraticCurveTo(w-20,10,w-20,100);
+  ctx.lineTo(w-10,h-100);
+  ctx.quadraticCurveTo(w-15,h-10,r,h-5);
+  ctx.quadraticCurveTo(15,h-10,10,h-100);
+  ctx.lineTo(20,100);
+  ctx.closePath();ctx.stroke();ctx.restore();
+}
+
+function clearCanvas(){saveState();ctx.clearRect(0,0,C.width,C.height);initDeck()}
+
+let tempCanvas,tempCtx;
+function initTemp(){tempCanvas=document.createElement('canvas');tempCanvas.width=C.width;tempCanvas.height=C.height;tempCtx=tempCanvas.getContext('2d')}
+initTemp();
+
+let snapshot=null;
+C.addEventListener('mousedown',e=>{
+  const rect=C.getBoundingClientRect();
+  const sx=C.width/rect.width,sy=C.height/rect.height;
+  startX=(e.clientX-rect.left)*sx;startY=(e.clientY-rect.top)*sy;
+  
+  if(tool==='text'){
+    saveState();
+    const txt=document.getElementById('textInput').value||'SKATE';
+    const fs=document.getElementById('fontSize').value;
+    const ff=document.getElementById('fontFamily').value;
+    ctx.save();deckClip();
+    ctx.font=`bold ${fs}px ${ff}`;ctx.fillStyle=color;ctx.textAlign='center';
+    ctx.fillText(txt,startX,startY);
+    ctx.restore();drawDeckOutline();return;
+  }
+  if(tool==='sticker'){
+    saveState();ctx.save();deckClip();
+    ctx.font='48px serif';ctx.textAlign='center';
+    ctx.fillText(selectedSticker,startX,startY);
+    ctx.restore();drawDeckOutline();return;
+  }
+  if(tool==='fill'){
+    saveState();ctx.save();deckClip();ctx.fillStyle=color;ctx.fillRect(0,0,C.width,C.height);ctx.restore();drawDeckOutline();return;
+  }
+  
+  drawing=true;saveState();
+  snapshot=ctx.getImageData(0,0,C.width,C.height);
+  if(tool==='brush'||tool==='eraser'){
+    ctx.beginPath();ctx.moveTo(startX,startY);
+  }
+});
+
+C.addEventListener('mousemove',e=>{
+  if(!drawing)return;
+  const rect=C.getBoundingClientRect();
+  const sx=C.width/rect.width,sy=C.height/rect.height;
+  const x=(e.clientX-rect.left)*sx,y=(e.clientY-rect.top)*sy;
+  
+  if(tool==='brush'||tool==='eraser'){
+    ctx.save();deckClip();
+    ctx.lineWidth=brushSize;ctx.lineCap='round';ctx.lineJoin='round';
+    if(tool==='eraser'){ctx.globalCompositeOperation='destination-out'}
+    ctx.strokeStyle=color;
+    ctx.lineTo(x,y);ctx.stroke();
+    ctx.restore();drawDeckOutline();
+  } else {
+    ctx.putImageData(snapshot,0,0);
+    ctx.save();deckClip();ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=brushSize;
+    if(tool==='line'){ctx.beginPath();ctx.moveTo(startX,startY);ctx.lineTo(x,y);ctx.stroke()}
+    if(tool==='rect'){ctx.strokeRect(Math.min(startX,x),Math.min(startY,y),Math.abs(x-startX),Math.abs(y-startY))}
+    if(tool==='circle'){const rx=Math.abs(x-startX)/2,ry=Math.abs(y-startY)/2;ctx.beginPath();ctx.ellipse(startX+((x-startX)/2),startY+((y-startY)/2),rx,ry,0,0,Math.PI*2);ctx.stroke()}
+    ctx.restore();drawDeckOutline();
+  }
+});
+
+C.addEventListener('mouseup',()=>{drawing=false;ctx.beginPath()});
+C.addEventListener('mouseleave',()=>{drawing=false;ctx.beginPath()});
+
+// Touch support
+C.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches[0];C.dispatchEvent(new MouseEvent('mousedown',{clientX:t.clientX,clientY:t.clientY}))},{passive:false});
+C.addEventListener('touchmove',e=>{e.preventDefault();const t=e.touches[0];C.dispatchEvent(new MouseEvent('mousemove',{clientX:t.clientX,clientY:t.clientY}))},{passive:false});
+C.addEventListener('touchend',e=>{e.preventDefault();C.dispatchEvent(new MouseEvent('mouseup'))},{passive:false});
+
+function exportPNG(){
+  const a=document.createElement('a');a.download='deck-design.png';a.href=C.toDataURL('image/png');a.click();
+}
+
+initDeck();
+</script>
+</body>
+</html>
