@@ -196,6 +196,7 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
       <button class="btn btn-secondary" onclick="clearCanvas()">Clear Canvas</button>
       <button class="btn btn-secondary" onclick="undoLast()">↩ Undo</button>
       <button class="btn btn-primary" onclick="exportPNG()">💾 Export PNG</button>
+      <button class="btn btn-primary" id="btn3d" onclick="toggle3D()" style="background:linear-gradient(135deg,#3b82f6,#06b6d4)">🧊 3D Preview</button>
     </div>
     <div class="panel" style="display:flex;flex-direction:column;gap:8px">
       <h3>Gallery</h3>
@@ -917,6 +918,205 @@ const _origMD=C.addEventListener;
 
 // We need to intercept clicks for aigen sticker mode — add to existing event flow
 updateAIKeyStatus();
+
+// === 3D Preview ===
+let threeLoaded=false, scene, camera3d, renderer, controls, deckMesh, is3DActive=false;
+
+function toggle3D(){
+  if(!is3DActive){open3DPreview()}else{close3DPreview()}
+}
+
+async function open3DPreview(){
+  const wrap=document.querySelector('.canvas-wrap');
+  if(!threeLoaded){
+    await loadScript('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js');
+    threeLoaded=true;
+  }
+
+  // Create 3D container
+  let container=document.getElementById('three-container');
+  if(!container){
+    container=document.createElement('div');
+    container.id='three-container';
+    container.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;z-index:10;background:#0a0a0f;border-radius:var(--radius);';
+    wrap.appendChild(container);
+  }
+  container.style.display='block';
+
+  const w=container.clientWidth,h=container.clientHeight;
+
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x0a0a0f);
+
+  camera3d=new THREE.PerspectiveCamera(45,w/h,0.1,100);
+  camera3d.position.set(0,0,5);
+
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(w,h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  container.innerHTML='';
+  container.appendChild(renderer.domElement);
+
+  // Lighting
+  scene.add(new THREE.AmbientLight(0xffffff,0.6));
+  const dir=new THREE.DirectionalLight(0xffffff,0.8);
+  dir.position.set(2,3,4);
+  scene.add(dir);
+  const dir2=new THREE.DirectionalLight(0x8888ff,0.3);
+  dir2.position.set(-2,-1,2);
+  scene.add(dir2);
+
+  // Orbit controls
+  controls=new THREE.OrbitControls(camera3d,renderer.domElement);
+  controls.enableDamping=true;
+  controls.dampingFactor=0.08;
+  controls.minDistance=2;
+  controls.maxDistance=10;
+
+  // Build deck mesh
+  buildDeckMesh();
+
+  is3DActive=true;
+  document.getElementById('btn3d').textContent='✖ Close 3D';
+  animate3D();
+}
+
+function close3DPreview(){
+  const container=document.getElementById('three-container');
+  if(container)container.style.display='none';
+  if(renderer){renderer.dispose();renderer=null}
+  if(controls){controls.dispose();controls=null}
+  is3DActive=false;
+  document.getElementById('btn3d').textContent='🧊 3D Preview';
+}
+
+function buildDeckMesh(){
+  if(deckMesh){scene.remove(deckMesh);deckMesh.geometry.dispose();deckMesh.material.forEach?deckMesh.material.forEach(m=>m.dispose()):deckMesh.material.dispose()}
+
+  const bs=getBoardSize();
+  const aspect=bs.l/bs.w;
+  const boardW=1.8, boardH=boardW*aspect, boardD=0.08;
+
+  // Create board shape from deck outline
+  const shape=new THREE.Shape();
+  const shapeType=getBoardConfig().shape;
+  const sw=1,sh=aspect; // normalized coords centered at 0
+
+  // Map deckShapePath logic to Three.js Shape (normalized -0.5..0.5)
+  if(shapeType==='popsicle'){
+    const noseH=0.5*1.2/aspect;
+    shape.moveTo(-0.44, 0.5-noseH*2);
+    shape.quadraticCurveTo(-0.44, 0.49, 0, 0.496);
+    shape.quadraticCurveTo(0.44, 0.49, 0.44, 0.5-noseH*2);
+    shape.lineTo(0.47, -0.5+noseH*1.6);
+    shape.quadraticCurveTo(0.45, -0.49, 0, -0.497);
+    shape.quadraticCurveTo(-0.45, -0.49, -0.47, -0.5+noseH*1.6);
+    shape.lineTo(-0.44, 0.5-noseH*2);
+  } else if(shapeType==='cruiser'){
+    shape.moveTo(-0.42, 0.4);
+    shape.quadraticCurveTo(-0.45, 0.49, 0, 0.49);
+    shape.quadraticCurveTo(0.45, 0.49, 0.42, 0.4);
+    shape.lineTo(0.45, -0.25);
+    shape.quadraticCurveTo(0.48, -0.38, 0.35, -0.46);
+    shape.quadraticCurveTo(0.15, -0.51, 0, -0.495);
+    shape.quadraticCurveTo(-0.15, -0.51, -0.35, -0.46);
+    shape.quadraticCurveTo(-0.48, -0.38, -0.45, -0.25);
+    shape.lineTo(-0.42, 0.4);
+  } else if(shapeType==='oldschool'){
+    shape.moveTo(-0.4, 0.35);
+    shape.quadraticCurveTo(-0.45, 0.49, 0, 0.495);
+    shape.quadraticCurveTo(0.45, 0.49, 0.4, 0.35);
+    shape.lineTo(0.45, -0.1);
+    shape.lineTo(0.38, -0.35);
+    shape.lineTo(0.25, -0.47);
+    shape.lineTo(0.1, -0.4);
+    shape.lineTo(0, -0.47);
+    shape.lineTo(-0.1, -0.4);
+    shape.lineTo(-0.25, -0.47);
+    shape.lineTo(-0.38, -0.35);
+    shape.lineTo(-0.45, -0.1);
+    shape.lineTo(-0.4, 0.35);
+  } else if(shapeType==='pintail'){
+    shape.moveTo(-0.35, 0.38);
+    shape.quadraticCurveTo(-0.4, 0.48, 0, 0.496);
+    shape.quadraticCurveTo(0.4, 0.48, 0.35, 0.38);
+    shape.quadraticCurveTo(0.52, 0.15, 0.47, 0);
+    shape.quadraticCurveTo(0.4, -0.25, 0.15, -0.45);
+    shape.quadraticCurveTo(0.01, -0.505, 0, -0.498);
+    shape.quadraticCurveTo(-0.01, -0.505, -0.15, -0.45);
+    shape.quadraticCurveTo(-0.4, -0.25, -0.47, 0);
+    shape.quadraticCurveTo(-0.52, 0.15, -0.35, 0.38);
+  }
+
+  const extrudeSettings={depth:boardD,bevelEnabled:true,bevelThickness:0.015,bevelSize:0.01,bevelSegments:3};
+  const geometry=new THREE.ExtrudeGeometry(shape,extrudeSettings);
+
+  // Scale to actual board dimensions
+  geometry.scale(boardW,boardH/aspect,1);
+  geometry.center();
+
+  // Rotate so board is vertical (standing up facing camera)
+  geometry.rotateX(Math.PI/2);
+
+  // Top texture from canvas
+  const topTexture=new THREE.CanvasTexture(C);
+  topTexture.colorSpace=THREE.SRGBColorSpace;
+
+  // Bottom: dark wood-ish color
+  const bottomMat=new THREE.MeshStandardMaterial({color:0x2a1a0a,roughness:0.7,metalness:0.05});
+  const sideMat=new THREE.MeshStandardMaterial({color:0x1a1a1a,roughness:0.5});
+
+  // For ExtrudeGeometry: group 0 = front face (top), group 1 = back face (bottom), group 2 = sides
+  const topMat=new THREE.MeshStandardMaterial({map:topTexture,roughness:0.4,metalness:0.05});
+
+  // Assign materials: [side, front-cap, back-cap] — ExtrudeGeometry has groups: 0=sides, 1=front, 2=back(doesn't exist usually)
+  // Actually ExtrudeGeometry: materialIndex 0 = extruded sides, materialIndex 1 = front face, (no back by default)
+  // With bevel, front = top of deck, the extruded part = sides+bottom
+  deckMesh=new THREE.Mesh(geometry,[sideMat,topMat]);
+
+  // Fix UV mapping for the top face to properly show the canvas
+  fixUVs(geometry,boardW,boardH/aspect);
+
+  scene.add(deckMesh);
+}
+
+function fixUVs(geom,w,h){
+  const pos=geom.attributes.position;
+  const uv=geom.attributes.uv;
+  const norm=geom.attributes.normal;
+  // For faces in group 1 (front cap), remap UVs to span 0-1
+  for(let gi=0;gi<geom.groups.length;gi++){
+    const g=geom.groups[gi];
+    if(g.materialIndex===1){
+      for(let i=g.start;i<g.start+g.count;i++){
+        const x=pos.getX(i);
+        const z=pos.getZ(i); // after rotation, Z was Y
+        const y=pos.getY(i);
+        // Map x from [-w/2, w/2] to [0, 1] and z similarly
+        uv.setXY(i, (x/w)+0.5, 1.0-((z/(h))+0.5));
+      }
+    }
+  }
+  uv.needsUpdate=true;
+}
+
+function animate3D(){
+  if(!is3DActive)return;
+  requestAnimationFrame(animate3D);
+  // Update texture from canvas each frame
+  if(deckMesh&&deckMesh.material[1]&&deckMesh.material[1].map){
+    deckMesh.material[1].map.needsUpdate=true;
+  }
+  controls.update();
+  renderer.render(scene,camera3d);
+}
+
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s);
+  });
+}
 </script>
 </body>
 </html>
