@@ -56,6 +56,19 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
 <div class="app">
   <div class="toolbar">
     <div class="panel">
+      <h3>Board Type</h3>
+      <select id="boardType" style="margin-bottom:8px">
+        <option value="street">Street / Popsicle</option>
+        <option value="park">Park / Transition</option>
+        <option value="cruiser">Cruiser</option>
+        <option value="oldschool">Old School</option>
+        <option value="longboard">Longboard</option>
+        <option value="mini">Mini / Kids</option>
+      </select>
+      <select id="boardSize"></select>
+      <div id="boardDims" style="font-size:.7rem;color:var(--text2);margin-top:4px"></div>
+    </div>
+    <div class="panel">
       <h3>Tools</h3>
       <div class="tools-row">
         <button class="tool-btn active" data-tool="brush" title="Brush">🖌️</button>
@@ -165,7 +178,7 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
     </div>
   </div>
   <div class="canvas-wrap">
-    <canvas id="deck" width="320" height="820"></canvas>
+    <canvas id="deck"></canvas>
   </div>
 </div>
 <script>
@@ -173,6 +186,60 @@ const C=document.getElementById('deck'),ctx=C.getContext('2d');
 const COLORS=['#ffffff','#000000','#e53e3e','#dd6b20','#ecc94b','#38a169','#3182ce','#805ad5','#d53f8c','#4fd1c2','#a0aec0','#2d3748'];
 const BG_COLORS=['#000000','#1a1a2e','#0f3460','#16213e','#1b1b2f','#2d132c','#ffffff','#f5f5dc'];
 let tool='brush',color='#a855f7',brushSize=6,drawing=false,startX,startY,history=[],selectedSticker='🛹';
+
+// Board type definitions: dimensions in inches [length, width]
+const BOARD_TYPES={
+  street:{name:'Street',sizes:[{label:'31.5" × 8.0"',l:31.5,w:8.0},{label:'31.75" × 8.25"',l:31.75,w:8.25},{label:'32" × 8.5"',l:32,w:8.5}],shape:'popsicle'},
+  park:{name:'Park',sizes:[{label:'32.25" × 8.5"',l:32.25,w:8.5},{label:'32.5" × 8.75"',l:32.5,w:8.75},{label:'33" × 9.0"',l:33,w:9.0}],shape:'popsicle'},
+  cruiser:{name:'Cruiser',sizes:[{label:'28" × 8.5"',l:28,w:8.5},{label:'30" × 8.75"',l:30,w:8.75}],shape:'cruiser'},
+  oldschool:{name:'Old School',sizes:[{label:'30" × 10.0"',l:30,w:10.0}],shape:'oldschool'},
+  longboard:{name:'Longboard',sizes:[{label:'38" × 9.5"',l:38,w:9.5},{label:'42" × 9.75"',l:42,w:9.75},{label:'46" × 10.0"',l:46,w:10.0}],shape:'pintail'},
+  mini:{name:'Mini',sizes:[{label:'28" × 7.0"',l:28,w:7.0},{label:'29" × 7.5"',l:29,w:7.5}],shape:'popsicle'}
+};
+
+let currentBoardType='street',currentSizeIdx=0;
+
+function getBoardConfig(){return BOARD_TYPES[currentBoardType]}
+function getBoardSize(){const bt=getBoardConfig();return bt.sizes[currentSizeIdx]||bt.sizes[0]}
+
+// Scale real dimensions to canvas pixels (pixel density: ~10px per inch width basis)
+function calcCanvasDims(){
+  const s=getBoardSize();
+  const SCALE=320/8.0; // base: 320px for 8" width
+  return {w:Math.round(s.w*SCALE),h:Math.round(s.l*SCALE)};
+}
+
+function resizeCanvas(){
+  const dims=calcCanvasDims();
+  // Save current drawing
+  const oldData=C.toDataURL();
+  C.width=dims.w;C.height=dims.h;
+  history=[];
+  initDeck();
+  document.getElementById('boardDims').textContent=`Canvas: ${dims.w}×${dims.h}px (${getBoardSize().l}" × ${getBoardSize().w}")`;
+  // Persist selection
+  try{localStorage.setItem('deckDesigner_boardType',currentBoardType);localStorage.setItem('deckDesigner_sizeIdx',currentSizeIdx)}catch(e){}
+}
+
+function populateSizes(){
+  const sel=document.getElementById('boardSize');
+  const bt=getBoardConfig();
+  sel.innerHTML=bt.sizes.map((s,i)=>`<option value="${i}">${s.label}</option>`).join('');
+  sel.value=currentSizeIdx<bt.sizes.length?currentSizeIdx:0;
+  currentSizeIdx=+sel.value;
+}
+
+document.getElementById('boardType').onchange=e=>{currentBoardType=e.target.value;currentSizeIdx=0;populateSizes();resizeCanvas()};
+document.getElementById('boardSize').onchange=e=>{currentSizeIdx=+e.target.value;resizeCanvas()};
+
+// Restore saved board selection
+try{
+  const savedType=localStorage.getItem('deckDesigner_boardType');
+  const savedIdx=localStorage.getItem('deckDesigner_sizeIdx');
+  if(savedType&&BOARD_TYPES[savedType]){currentBoardType=savedType;document.getElementById('boardType').value=savedType}
+  if(savedIdx!=null)currentSizeIdx=+savedIdx;
+}catch(e){}
+populateSizes();
 
 function initColors(id,colors,onClick){
   const el=document.getElementById(id);
@@ -222,68 +289,98 @@ function sprayPaint(x,y){
 function saveState(){history.push(C.toDataURL());if(history.length>30)history.shift()}
 function undoLast(){if(history.length){const img=new Image();img.onload=()=>{ctx.clearRect(0,0,C.width,C.height);ctx.drawImage(img,0,0)};img.src=history.pop()}}
 
-// Draw deck shape
-function deckPath(){
-  const w=C.width,h=C.height,r=w/2,nose=80,tail=70;
-  ctx.beginPath();
-  ctx.moveTo(r,0);
-  ctx.bezierCurveTo(w+20,nose,-20,nose,r,0);// nose curve (top)
-  // Actually let's do a proper deck outline
-  ctx.closePath();
-}
+// Draw deck shape based on board type
 
-function fillDeckBg(c){saveState();ctx.save();deckClip();ctx.fillStyle=c;ctx.fillRect(0,0,C.width,C.height);ctx.restore();restoreDrawing()}
+function fillDeckBg(c){saveState();ctx.save();deckClip();ctx.fillStyle=c;ctx.fillRect(0,0,C.width,C.height);ctx.restore();drawDeckOutline()}
 function fillDeckGradient(){
   saveState();
   const g=ctx.createLinearGradient(0,0,C.width,C.height);
   const rc=()=>COLORS[Math.floor(Math.random()*COLORS.length)];
   g.addColorStop(0,rc());g.addColorStop(.5,rc());g.addColorStop(1,rc());
-  ctx.save();deckClip();ctx.fillStyle=g;ctx.fillRect(0,0,C.width,C.height);ctx.restore();restoreDrawing();
-}
-
-let drawingData=null;
-function restoreDrawing(){
-  if(drawingData){const img=new Image();img.onload=()=>ctx.drawImage(img,0,0);img.src=drawingData}
+  ctx.save();deckClip();ctx.fillStyle=g;ctx.fillRect(0,0,C.width,C.height);ctx.restore();drawDeckOutline();
 }
 
 function deckClip(){
-  const w=C.width,h=C.height,r=w/2;
+  const w=C.width,h=C.height;
   ctx.beginPath();
-  // Nose (top)
-  ctx.moveTo(20,100);
-  ctx.quadraticCurveTo(20,10,r,8);
-  ctx.quadraticCurveTo(w-20,10,w-20,100);
-  // Right side
-  ctx.lineTo(w-10,h-100);
-  // Tail (bottom)
-  ctx.quadraticCurveTo(w-15,h-10,r,h-5);
-  ctx.quadraticCurveTo(15,h-10,10,h-100);
-  // Left side
-  ctx.lineTo(20,100);
+  deckShapePath(w,h);
   ctx.closePath();
   ctx.clip();
+}
+
+function deckShapePath(w,h){
+  const shape=getBoardConfig().shape;
+  const r=w/2;
+  if(shape==='popsicle'){
+    // Standard popsicle: symmetrical nose and tail
+    const noseH=w*1.2,tailH=w*1.0;
+    ctx.moveTo(w*0.06,noseH);
+    ctx.quadraticCurveTo(w*0.06,h*0.01,r,h*0.008);
+    ctx.quadraticCurveTo(w*0.94,h*0.01,w*0.94,noseH);
+    ctx.lineTo(w*0.97,h-tailH);
+    ctx.quadraticCurveTo(w*0.95,h*0.99,r,h*0.994);
+    ctx.quadraticCurveTo(w*0.05,h*0.99,w*0.03,h-tailH);
+    ctx.lineTo(w*0.06,noseH);
+  } else if(shape==='cruiser'){
+    // Wider, shorter, more rounded tail with slight kicktail shape
+    const noseH=w*1.0;
+    ctx.moveTo(w*0.08,noseH);
+    ctx.quadraticCurveTo(w*0.05,h*0.015,r,h*0.01);
+    ctx.quadraticCurveTo(w*0.95,h*0.015,w*0.92,noseH);
+    ctx.lineTo(w*0.95,h*0.75);
+    // Kicktail: slight outward then tapered
+    ctx.quadraticCurveTo(w*0.98,h*0.88,w*0.85,h*0.96);
+    ctx.quadraticCurveTo(w*0.65,h*1.01,r,h*0.995);
+    ctx.quadraticCurveTo(w*0.35,h*1.01,w*0.15,h*0.96);
+    ctx.quadraticCurveTo(w*0.02,h*0.88,w*0.05,h*0.75);
+    ctx.lineTo(w*0.08,noseH);
+  } else if(shape==='oldschool'){
+    // Wide nose, fishtail
+    const noseH=w*0.8;
+    ctx.moveTo(w*0.1,noseH);
+    ctx.quadraticCurveTo(w*0.05,h*0.01,r,h*0.005);
+    ctx.quadraticCurveTo(w*0.95,h*0.01,w*0.9,noseH);
+    // Right side widens slightly
+    ctx.lineTo(w*0.95,h*0.6);
+    ctx.lineTo(w*0.88,h*0.85);
+    // Fishtail notch
+    ctx.lineTo(w*0.75,h*0.97);
+    ctx.lineTo(w*0.6,h*0.90);
+    ctx.lineTo(r,h*0.97);
+    ctx.lineTo(w*0.4,h*0.90);
+    ctx.lineTo(w*0.25,h*0.97);
+    ctx.lineTo(w*0.12,h*0.85);
+    ctx.lineTo(w*0.05,h*0.6);
+    ctx.lineTo(w*0.1,noseH);
+  } else if(shape==='pintail'){
+    // Longboard: wide middle, pointed tail, rounded nose
+    ctx.moveTo(w*0.15,h*0.12);
+    ctx.quadraticCurveTo(w*0.1,h*0.02,r,h*0.008);
+    ctx.quadraticCurveTo(w*0.9,h*0.02,w*0.85,h*0.12);
+    // Widen toward middle
+    ctx.quadraticCurveTo(w*1.02,h*0.35,w*0.97,h*0.5);
+    // Taper toward tail
+    ctx.quadraticCurveTo(w*0.9,h*0.75,w*0.65,h*0.95);
+    ctx.quadraticCurveTo(r+5,h*1.005,r,h*0.998);
+    ctx.quadraticCurveTo(r-5,h*1.005,w*0.35,h*0.95);
+    ctx.quadraticCurveTo(w*0.1,h*0.75,w*0.03,h*0.5);
+    ctx.quadraticCurveTo(-w*0.02,h*0.35,w*0.15,h*0.12);
+  }
 }
 
 function initDeck(){
   ctx.save();deckClip();
   ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,C.width,C.height);
   ctx.restore();
-  // Draw outline
   drawDeckOutline();
 }
 
 function drawDeckOutline(){
-  const w=C.width,h=C.height,r=w/2;
+  const w=C.width,h=C.height;
   ctx.save();
   ctx.strokeStyle='#333';ctx.lineWidth=2;
   ctx.beginPath();
-  ctx.moveTo(20,100);
-  ctx.quadraticCurveTo(20,10,r,8);
-  ctx.quadraticCurveTo(w-20,10,w-20,100);
-  ctx.lineTo(w-10,h-100);
-  ctx.quadraticCurveTo(w-15,h-10,r,h-5);
-  ctx.quadraticCurveTo(15,h-10,10,h-100);
-  ctx.lineTo(20,100);
+  deckShapePath(w,h);
   ctx.closePath();ctx.stroke();ctx.restore();
 }
 
@@ -540,7 +637,7 @@ function placeImageSticker(x,y){
   ctx.restore();drawDeckOutline();
 }
 
-initDeck();
+resizeCanvas();
 
 // === Gallery: Save/Share via URL hash + localStorage ===
 const GALLERY_KEY='deckDesignerGallery';
