@@ -45,6 +45,12 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
 .gallery-item .gallery-del{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);border:none;color:#f66;font-size:.7rem;border-radius:4px;cursor:pointer;padding:1px 5px}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;padding:10px 24px;border-radius:8px;font-size:.9rem;font-weight:600;z-index:999;opacity:0;transition:opacity .3s}
 .toast.show{opacity:1}
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--surface);border-radius:var(--radius);padding:24px;max-width:400px;width:90%}
+.modal h2{font-size:1.1rem;margin-bottom:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.modal input[type=password],.modal input[type=text]{width:100%;padding:10px;background:var(--surface2);border:1px solid #333;border-radius:8px;color:var(--text);font-size:.9rem;margin-bottom:8px}
+.modal .key-masked{font-size:.8rem;color:var(--accent);margin-bottom:8px}
 @media(max-width:768px){.app{flex-direction:column}.toolbar{width:100%;flex-direction:row;flex-wrap:wrap}.panel{flex:1;min-width:140px}}
 </style>
 </head>
@@ -81,6 +87,7 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
         <button class="tool-btn" data-tool="text" title="Text">🔤</button>
         <button class="tool-btn" data-tool="sticker" title="Sticker">🎨</button>
         <button class="tool-btn" data-tool="image" title="Place Image">🖼️</button>
+        <button class="tool-btn" data-tool="aigen" title="AI Generate">🤖</button>
       </div>
     </div>
     <div class="panel">
@@ -133,6 +140,26 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
         <button class="sticker-btn" data-sticker="☠️">☠️</button>
       </div>
     </div>
+    <div class="panel" id="aigenPanel" style="display:none">
+      <h3>AI Image Generation</h3>
+      <div id="aiKeyStatus" style="font-size:.75rem;color:var(--text2);margin-bottom:8px"></div>
+      <button class="btn btn-secondary" onclick="openAISettings()" style="margin-bottom:8px">⚙️ API Key Settings</button>
+      <input type="text" id="aiPrompt" placeholder="Describe your deck graphic...">
+      <label>Apply As</label>
+      <select id="aiApplyMode" style="margin-bottom:8px">
+        <option value="background">Full Background</option>
+        <option value="sticker">Sticker (click to place)</option>
+      </select>
+      <label id="aiStickerSizeLabel" style="display:none">Sticker Size</label>
+      <input type="range" id="aiStickerSize" min="40" max="300" value="120" style="display:none">
+      <span id="aiStickerSizeVal" style="font-size:.8rem;color:var(--text2);display:none">120px</span>
+      <button class="btn btn-primary" onclick="generateAI()" style="margin-top:8px" id="aiGenBtn">✨ Generate</button>
+      <div id="aiLoading" style="display:none;text-align:center;padding:8px;font-size:.8rem;color:var(--accent)">⏳ Generating...</div>
+      <div id="aiError" style="display:none;font-size:.75rem;color:#f66;margin-top:6px"></div>
+      <div id="aiPreview" style="display:none;margin-top:8px;text-align:center">
+        <img id="aiThumb" style="max-width:100%;max-height:120px;border-radius:6px;border:1px solid #333">
+      </div>
+    </div>
     <div class="panel" id="imagePanel" style="display:none">
       <h3>Image Upload</h3>
       <input type="file" id="imageUpload" accept="image/*" style="width:100%;font-size:.8rem;color:var(--text2);margin-bottom:8px">
@@ -179,6 +206,19 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
   </div>
   <div class="canvas-wrap">
     <canvas id="deck"></canvas>
+  </div>
+</div>
+<div class="modal-overlay" id="aiSettingsModal">
+  <div class="modal">
+    <h2>🤖 Gemini API Key</h2>
+    <p style="font-size:.8rem;color:var(--text2);margin-bottom:12px">Enter your Google Gemini API key to enable AI image generation. Your key is stored locally in your browser and never sent to our servers.</p>
+    <div id="aiKeyMasked" class="key-masked"></div>
+    <input type="password" id="aiKeyInput" placeholder="Paste your Gemini API key...">
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn btn-primary" onclick="saveAIKey()" style="flex:1">Save Key</button>
+      <button class="btn btn-secondary" onclick="clearAIKey()" style="flex:1">Clear</button>
+    </div>
+    <button class="btn btn-secondary" onclick="closeAISettings()" style="margin-top:8px">Close</button>
   </div>
 </div>
 <script>
@@ -263,6 +303,7 @@ document.querySelectorAll('.tool-btn').forEach(b=>b.onclick=()=>{
   document.getElementById('stickerPanel').style.display=tool==='sticker'?'block':'none';
   document.getElementById('sprayPanel').style.display=tool==='spray'?'block':'none';
   document.getElementById('imagePanel').style.display=tool==='image'?'block':'none';
+  document.getElementById('aigenPanel').style.display=tool==='aigen'?'block':'none';
 });
 document.querySelectorAll('.sticker-btn').forEach(b=>b.onclick=()=>selectedSticker=b.dataset.sticker);
 document.getElementById('sprayRadius').oninput=e=>document.getElementById('sprayRadiusVal').textContent=e.target.value+'px';
@@ -415,6 +456,19 @@ C.addEventListener('mousedown',e=>{
   if(tool==='image'){
     if(uploadedImage&&document.getElementById('imageMode').value==='sticker'){
       placeImageSticker(startX,startY);
+    }
+    return;
+  }
+  if(tool==='aigen'){
+    if(aiGeneratedImage&&document.getElementById('aiApplyMode').value==='sticker'){
+      saveState();
+      const size=+document.getElementById('aiStickerSize').value;
+      const aspect=aiGeneratedImage.width/aiGeneratedImage.height;
+      let iw,ih;
+      if(aspect>=1){iw=size;ih=size/aspect}else{ih=size;iw=size*aspect}
+      ctx.save();deckClip();
+      ctx.drawImage(aiGeneratedImage,startX-iw/2,startY-ih/2,iw,ih);
+      ctx.restore();drawDeckOutline();
     }
     return;
   }
@@ -746,6 +800,123 @@ function renderGallery(){
 // Init: load from URL hash if present, render gallery
 window.addEventListener('load',()=>{loadFromHash();renderGallery()});
 window.addEventListener('hashchange',loadFromHash);
+
+// === Gemini AI Image Generation ===
+const AI_KEY_STORAGE='gemini_api_key';
+let aiGeneratedImage=null;
+
+function getAIKey(){return localStorage.getItem(AI_KEY_STORAGE)||''}
+function maskKey(k){if(!k)return'';return k.slice(0,6)+'•••••••'+k.slice(-4)}
+
+function updateAIKeyStatus(){
+  const k=getAIKey();
+  const el=document.getElementById('aiKeyStatus');
+  if(k){el.innerHTML='🔑 Key saved: <span style="color:var(--accent)">'+maskKey(k)+'</span>'}
+  else{el.textContent='⚠️ No API key set — click Settings to add one'}
+}
+
+function openAISettings(){
+  document.getElementById('aiSettingsModal').classList.add('show');
+  const k=getAIKey();
+  document.getElementById('aiKeyMasked').textContent=k?'Current key: '+maskKey(k):'No key saved';
+  document.getElementById('aiKeyInput').value='';
+}
+function closeAISettings(){document.getElementById('aiSettingsModal').classList.remove('show')}
+function saveAIKey(){
+  const v=document.getElementById('aiKeyInput').value.trim();
+  if(!v){showToast('⚠️ Please enter a key');return}
+  localStorage.setItem(AI_KEY_STORAGE,v);
+  updateAIKeyStatus();closeAISettings();showToast('🔑 API key saved!');
+}
+function clearAIKey(){
+  localStorage.removeItem(AI_KEY_STORAGE);
+  updateAIKeyStatus();closeAISettings();showToast('🔑 API key cleared');
+}
+
+// AI apply mode toggle
+document.getElementById('aiApplyMode').onchange=e=>{
+  const show=e.target.value==='sticker';
+  document.getElementById('aiStickerSizeLabel').style.display=show?'block':'none';
+  document.getElementById('aiStickerSize').style.display=show?'block':'none';
+  document.getElementById('aiStickerSizeVal').style.display=show?'inline':'none';
+};
+document.getElementById('aiStickerSize').oninput=e=>document.getElementById('aiStickerSizeVal').textContent=e.target.value+'px';
+
+async function generateAI(){
+  const key=getAIKey();
+  if(!key){openAISettings();return}
+  const prompt=document.getElementById('aiPrompt').value.trim();
+  if(!prompt){showToast('⚠️ Enter a prompt first');return}
+
+  const btn=document.getElementById('aiGenBtn');
+  const loading=document.getElementById('aiLoading');
+  const errEl=document.getElementById('aiError');
+  const preview=document.getElementById('aiPreview');
+  btn.disabled=true;loading.style.display='block';errEl.style.display='none';preview.style.display='none';
+
+  try{
+    const resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key='+encodeURIComponent(key),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        contents:[{parts:[{text:'Generate a skateboard deck graphic: '+prompt+'. Make it vivid, high contrast, suitable for a skateboard deck bottom graphic. No text unless requested.'}]}],
+        generationConfig:{responseModalities:['TEXT','IMAGE']}
+      })
+    });
+    if(!resp.ok){
+      const err=await resp.json().catch(()=>({}));
+      throw new Error(err.error?.message||'API error ('+resp.status+')');
+    }
+    const data=await resp.json();
+    // Find image part in response
+    let imgData=null;
+    for(const candidate of (data.candidates||[])){
+      for(const part of (candidate.content?.parts||[])){
+        if(part.inlineData?.mimeType?.startsWith('image/')){
+          imgData=part.inlineData;break;
+        }
+      }
+      if(imgData)break;
+    }
+    if(!imgData)throw new Error('No image in response. The model may not have generated an image for this prompt.');
+
+    const imgSrc='data:'+imgData.mimeType+';base64,'+imgData.data;
+    const img=new Image();
+    img.onload=()=>{
+      aiGeneratedImage=img;
+      document.getElementById('aiThumb').src=imgSrc;
+      preview.style.display='block';
+
+      const mode=document.getElementById('aiApplyMode').value;
+      if(mode==='background'){
+        saveState();
+        ctx.save();deckClip();
+        const scale=Math.max(C.width/img.width,C.height/img.height);
+        const iw=img.width*scale,ih=img.height*scale;
+        const ox=(C.width-iw)/2,oy=(C.height-ih)/2;
+        ctx.drawImage(img,ox,oy,iw,ih);
+        ctx.restore();drawDeckOutline();
+        showToast('🎨 AI image applied as background!');
+      } else {
+        showToast('🎨 AI image ready — click on the deck to place it!');
+      }
+    };
+    img.src=imgSrc;
+  }catch(e){
+    errEl.textContent='❌ '+e.message;errEl.style.display='block';
+  }finally{
+    btn.disabled=false;loading.style.display='none';
+  }
+}
+
+// Handle AI sticker placement in existing mousedown handler
+const origMouseDown=C.onmousedown;
+
+// Patch the mousedown to handle aigen tool
+const _origMD=C.addEventListener;
+
+// We need to intercept clicks for aigen sticker mode — add to existing event flow
+updateAIKeyStatus();
 </script>
 </body>
 </html>
