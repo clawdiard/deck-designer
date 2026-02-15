@@ -197,6 +197,7 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
       <button class="btn btn-secondary" onclick="undoLast()">↩ Undo</button>
       <button class="btn btn-primary" onclick="exportPNG()">💾 Export PNG</button>
       <button class="btn btn-primary" id="btn3d" onclick="toggle3D()" style="background:linear-gradient(135deg,#3b82f6,#06b6d4)">🧊 3D Preview</button>
+      <label id="truckToggleWrap" style="display:none;align-items:center;gap:6px;font-size:.8rem;color:var(--text2);cursor:pointer;margin-top:2px"><input type="checkbox" id="chkTrucks" checked onchange="toggleTrucks()"> Show Trucks &amp; Wheels</label>
     </div>
     <div class="panel" style="display:flex;flex-direction:column;gap:8px">
       <h3>Gallery</h3>
@@ -979,6 +980,7 @@ async function open3DPreview(){
 
   is3DActive=true;
   document.getElementById('btn3d').textContent='✖ Close 3D';
+  document.getElementById('truckToggleWrap').style.display='flex';
   animate3D();
 }
 
@@ -989,6 +991,7 @@ function close3DPreview(){
   if(controls){controls.dispose();controls=null}
   is3DActive=false;
   document.getElementById('btn3d').textContent='🧊 3D Preview';
+  document.getElementById('truckToggleWrap').style.display='none';
 }
 
 function buildDeckMesh(){
@@ -1079,6 +1082,9 @@ function buildDeckMesh(){
   fixUVs(geometry,boardW,boardH/aspect);
 
   scene.add(deckMesh);
+
+  // Build trucks & wheels
+  buildTruckAndWheels(boardW, boardH/aspect, boardD);
 }
 
 function fixUVs(geom,w,h){
@@ -1099,6 +1105,71 @@ function fixUVs(geom,w,h){
     }
   }
   uv.needsUpdate=true;
+}
+
+// === Trucks & Wheels ===
+let truckGroup=null, trucksVisible=true;
+
+function buildTruckAndWheels(boardW, boardH, boardD){
+  if(truckGroup){scene.remove(truckGroup);truckGroup.traverse(c=>{if(c.geometry)c.geometry.dispose();if(c.material)c.material.dispose()})}
+  truckGroup=new THREE.Group();
+
+  const truckMat=new THREE.MeshStandardMaterial({color:0xc0c0c0,roughness:0.3,metalness:0.7});
+  const axleMat=new THREE.MeshStandardMaterial({color:0x999999,roughness:0.3,metalness:0.8});
+  const wheelMat=new THREE.MeshStandardMaterial({color:0xf0f0f0,roughness:0.6,metalness:0.05});
+  const bearingMat=new THREE.MeshStandardMaterial({color:0xff4444,roughness:0.4,metalness:0.5});
+
+  const truckW=boardW*0.85; // hanger width relative to deck
+  const wheelR=0.065, wheelH=0.06;
+
+  function makeTruck(yPos){
+    const g=new THREE.Group();
+    // Baseplate
+    const bp=new THREE.Mesh(new THREE.BoxGeometry(boardW*0.35,0.015,0.12),truckMat);
+    bp.position.set(0,-boardD/2-0.008,0);
+    g.add(bp);
+    // Kingpin
+    const kp=new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,0.06,8),axleMat);
+    kp.position.set(0,-boardD/2-0.04,0);
+    g.add(kp);
+    // Hanger
+    const hanger=new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.018,truckW*0.7,12),truckMat);
+    hanger.rotation.z=Math.PI/2;
+    hanger.position.set(0,-boardD/2-0.055,0);
+    g.add(hanger);
+    // Axle
+    const axle=new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,truckW,8),axleMat);
+    axle.rotation.z=Math.PI/2;
+    axle.position.set(0,-boardD/2-0.055,0);
+    g.add(axle);
+    // Wheels (4 per truck pair, 2 per side)
+    for(let side of[-1,1]){
+      const wg=new THREE.Mesh(new THREE.CylinderGeometry(wheelR,wheelR,wheelH,20),wheelMat);
+      wg.rotation.z=Math.PI/2;
+      wg.position.set(side*truckW/2, -boardD/2-0.055, 0);
+      g.add(wg);
+      // Bearing face
+      const bear=new THREE.Mesh(new THREE.RingGeometry(0.015,0.035,16),bearingMat);
+      bear.rotation.y=Math.PI/2;
+      bear.position.set(side*(truckW/2+wheelH/2+0.001), -boardD/2-0.055, 0);
+      g.add(bear);
+    }
+    g.position.y=yPos;
+    return g;
+  }
+
+  // Mount positions: ~2.5 inches from nose/tail. In our 3D scale, boardH is the length.
+  const mountOffset=boardH*0.32;
+  truckGroup.add(makeTruck(mountOffset));  // front truck (nose side)
+  truckGroup.add(makeTruck(-mountOffset)); // rear truck (tail side)
+
+  scene.add(truckGroup);
+  truckGroup.visible=trucksVisible;
+}
+
+function toggleTrucks(){
+  trucksVisible=document.getElementById('chkTrucks').checked;
+  if(truckGroup)truckGroup.visible=trucksVisible;
 }
 
 function animate3D(){
