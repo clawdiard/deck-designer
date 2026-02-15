@@ -55,6 +55,7 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
         <button class="tool-btn" data-tool="line" title="Line">📏</button>
         <button class="tool-btn" data-tool="rect" title="Rectangle">⬜</button>
         <button class="tool-btn" data-tool="circle" title="Circle">⭕</button>
+        <button class="tool-btn" data-tool="spray" title="Spray Paint">💨</button>
         <button class="tool-btn" data-tool="fill" title="Fill">🪣</button>
         <button class="tool-btn" data-tool="eraser" title="Eraser">🧹</button>
         <button class="tool-btn" data-tool="text" title="Text">🔤</button>
@@ -84,6 +85,15 @@ select{width:100%;padding:8px;background:var(--surface2);border:1px solid #333;b
         <option value="Georgia">Georgia</option>
         <option value="Comic Sans MS">Comic Sans MS</option>
       </select>
+    </div>
+    <div class="panel" id="sprayPanel" style="display:none">
+      <h3>Spray Paint</h3>
+      <label>Radius</label>
+      <input type="range" id="sprayRadius" min="10" max="80" value="30">
+      <span id="sprayRadiusVal" style="font-size:.8rem;color:var(--text2)">30px</span>
+      <label>Density</label>
+      <input type="range" id="sprayDensity" min="5" max="60" value="25">
+      <span id="sprayDensityVal" style="font-size:.8rem;color:var(--text2)">25</span>
     </div>
     <div class="panel" id="stickerPanel" style="display:none">
       <h3>Stickers</h3>
@@ -154,8 +164,29 @@ document.querySelectorAll('.tool-btn').forEach(b=>b.onclick=()=>{
   b.classList.add('active');tool=b.dataset.tool;
   document.getElementById('textPanel').style.display=tool==='text'?'block':'none';
   document.getElementById('stickerPanel').style.display=tool==='sticker'?'block':'none';
+  document.getElementById('sprayPanel').style.display=tool==='spray'?'block':'none';
 });
 document.querySelectorAll('.sticker-btn').forEach(b=>b.onclick=()=>selectedSticker=b.dataset.sticker);
+document.getElementById('sprayRadius').oninput=e=>document.getElementById('sprayRadiusVal').textContent=e.target.value+'px';
+document.getElementById('sprayDensity').oninput=e=>document.getElementById('sprayDensityVal').textContent=e.target.value;
+
+let sprayInterval=null;
+function sprayPaint(x,y){
+  const radius=+document.getElementById('sprayRadius').value;
+  const density=+document.getElementById('sprayDensity').value;
+  ctx.save();deckClip();
+  ctx.fillStyle=color;
+  for(let i=0;i<density;i++){
+    const angle=Math.random()*Math.PI*2;
+    const r=Math.random()*radius;
+    const px=x+Math.cos(angle)*r;
+    const py=y+Math.sin(angle)*r;
+    const size=0.5+Math.random()*2;
+    ctx.globalAlpha=0.15+Math.random()*0.45;
+    ctx.beginPath();ctx.arc(px,py,size,0,Math.PI*2);ctx.fill();
+  }
+  ctx.restore();ctx.globalAlpha=1;drawDeckOutline();
+}
 
 function saveState(){history.push(C.toDataURL());if(history.length>30)history.shift()}
 function undoLast(){if(history.length){const img=new Image();img.onload=()=>{ctx.clearRect(0,0,C.width,C.height);ctx.drawImage(img,0,0)};img.src=history.pop()}}
@@ -253,6 +284,11 @@ C.addEventListener('mousedown',e=>{
     ctx.fillText(selectedSticker,startX,startY);
     ctx.restore();drawDeckOutline();return;
   }
+  if(tool==='spray'){
+    saveState();sprayPaint(startX,startY);
+    sprayInterval=setInterval(()=>sprayPaint(startX,startY),30);
+    drawing=true;return;
+  }
   if(tool==='fill'){
     saveState();ctx.save();deckClip();ctx.fillStyle=color;ctx.fillRect(0,0,C.width,C.height);ctx.restore();drawDeckOutline();return;
   }
@@ -270,6 +306,10 @@ C.addEventListener('mousemove',e=>{
   const sx=C.width/rect.width,sy=C.height/rect.height;
   const x=(e.clientX-rect.left)*sx,y=(e.clientY-rect.top)*sy;
   
+  if(tool==='spray'){
+    startX=x;startY=y;
+    sprayPaint(x,y);return;
+  }
   if(tool==='brush'||tool==='eraser'){
     ctx.save();deckClip();
     ctx.lineWidth=brushSize;ctx.lineCap='round';ctx.lineJoin='round';
@@ -287,8 +327,8 @@ C.addEventListener('mousemove',e=>{
   }
 });
 
-C.addEventListener('mouseup',()=>{drawing=false;ctx.beginPath()});
-C.addEventListener('mouseleave',()=>{drawing=false;ctx.beginPath()});
+C.addEventListener('mouseup',()=>{drawing=false;ctx.beginPath();if(sprayInterval){clearInterval(sprayInterval);sprayInterval=null}});
+C.addEventListener('mouseleave',()=>{drawing=false;ctx.beginPath();if(sprayInterval){clearInterval(sprayInterval);sprayInterval=null}});
 
 // Touch support
 C.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches[0];C.dispatchEvent(new MouseEvent('mousedown',{clientX:t.clientX,clientY:t.clientY}))},{passive:false});
